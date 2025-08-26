@@ -33,11 +33,14 @@ import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 180
 
+
 Game_Memory :: struct {
-	player_pos: rl.Vector2,
+	entities:       []EntityAny, // sparse array
+	player_pos:     rl.Vector2,
 	player_texture: rl.Texture,
-	some_number: int,
-	run: bool,
+	tilemap:        TileMap,
+	some_number:    int,
+	run:            bool,
 }
 
 g: ^Game_Memory
@@ -46,17 +49,11 @@ game_camera :: proc() -> rl.Camera2D {
 	w := f32(rl.GetScreenWidth())
 	h := f32(rl.GetScreenHeight())
 
-	return {
-		zoom = h/PIXEL_WINDOW_HEIGHT,
-		target = g.player_pos,
-		offset = { w/2, h/2 },
-	}
+	return {zoom = h / PIXEL_WINDOW_HEIGHT, target = g.player_pos, offset = {w / 2, h / 2}}
 }
 
 ui_camera :: proc() -> rl.Camera2D {
-	return {
-		zoom = f32(rl.GetScreenHeight())/PIXEL_WINDOW_HEIGHT,
-	}
+	return {zoom = f32(rl.GetScreenHeight()) / PIXEL_WINDOW_HEIGHT}
 }
 
 update :: proc() {
@@ -74,6 +71,14 @@ update :: proc() {
 	if rl.IsKeyDown(.RIGHT) || rl.IsKeyDown(.D) {
 		input.x += 1
 	}
+	if rl.IsKeyDown(.Q) {
+		arr: [2][2]int
+
+		fmt.println("0, 0:", &(arr[0][0]))
+		fmt.println("0, 1:", &(arr[0][1]))
+		fmt.println("1, 0:", &(arr[1][0]))
+		fmt.println("1, 1:", &(arr[1][1]))
+	}
 
 	input = linalg.normalize0(input)
 	g.player_pos += input * rl.GetFrameTime() * 100
@@ -86,9 +91,10 @@ update :: proc() {
 
 draw :: proc() {
 	rl.BeginDrawing()
-	rl.ClearBackground(rl.BLACK)
+	rl.ClearBackground(rl.BLUE)
 
 	rl.BeginMode2D(game_camera())
+	tilemap_draw(&g.tilemap)
 	rl.DrawTextureEx(g.player_texture, g.player_pos, 0, 1, rl.WHITE)
 	rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
 	rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
@@ -99,7 +105,13 @@ draw :: proc() {
 	// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
 	// cleared at the end of the frame by the main application, meaning inside
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
-	rl.DrawText(fmt.ctprintf("some_number: %v\nplayer_pos: %v", g.some_number, g.player_pos), 5, 5, 8, rl.WHITE)
+	rl.DrawText(
+		fmt.ctprintf("some_number: %v\nplayer_pos: %v", g.some_number, g.player_pos),
+		5,
+		5,
+		8,
+		rl.WHITE,
+	)
 
 	rl.EndMode2D()
 
@@ -129,13 +141,15 @@ game_init :: proc() {
 	g = new(Game_Memory)
 
 	g^ = Game_Memory {
-		run = true,
-		some_number = 100,
+		run            = true,
+		some_number    = 100,
 
 		// You can put textures, sounds and music in the `assets` folder. Those
 		// files will be part any release or web build.
 		player_texture = rl.LoadTexture("assets/round_cat.png"),
 	}
+
+	tilemap_init(&g.tilemap)
 
 	game_hot_reloaded(g)
 }
