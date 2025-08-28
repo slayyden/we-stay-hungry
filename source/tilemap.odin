@@ -9,6 +9,7 @@
 package game
 import la "core:math/linalg"
 import rl "vendor:raylib"
+import "core:fmt"
 
 MAP_WIDTH :: 64
 MAP_HEIGHT :: 64
@@ -28,6 +29,7 @@ TileTypeData :: struct {
 	texture_scale: f32,
 }
 
+// types of gameplay tiles
 empty_tile :: distinct struct {
 }
 floor_tile :: distinct struct {
@@ -90,11 +92,13 @@ tile_type_data :: proc(filename : cstring)  -> TileTypeData {
 
 
 tilemap_init :: proc(tilemap: ^TileMap) {
+    fmt.println("initializing tilemap")
 	tile_type_data := [TileVisuals]TileTypeData {
 		.EMPTY = TileTypeData{},
 		.FLOOR_DEBUG = tile_type_data("assets/test_64.png"),
 		.WALL_DEBUG = tile_type_data("assets/test_128.png"),
 	}
+	fmt.println("tilemap intialized")
 	tilemap.tile_type_data = tile_type_data
 	tilemap.visual_layers[.BASE][0][0] = .FLOOR_DEBUG
 	tilemap.visual_layers[.BASE][0][1] = .WALL_DEBUG
