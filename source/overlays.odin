@@ -13,10 +13,14 @@ HIGHLIGHT_STATE_INVALID :: HighlightState {
 	entity = ENTITY_HANDLE_INVALID,
 }
 
+tile_in_bounds :: proc(tile: [2]u32) -> bool {
+	return tile.x < MAP_WIDTH && tile.y < MAP_HEIGHT
+}
+
 Action :: enum {
 	NONE,
-	// ATTACK,
 	MOVE,
+	ATTACK,
 }
 
 HoverState :: struct {

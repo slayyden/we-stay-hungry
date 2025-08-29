@@ -29,7 +29,7 @@ package game
 
 import sa "core:container/small_array"
 import "core:fmt"
-import "core:math/linalg"
+import la "core:math/linalg"
 import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 180
@@ -56,6 +56,9 @@ Game_Memory :: struct {
 
 	// hover state
 	hover_state:        HoverState,
+
+	// overlays
+	entity_select:      TileTypeData,
 }
 
 
@@ -82,6 +85,13 @@ game_init :: proc() {
 		PlayerChar{pos = {1, 0}, health = 10, animation_state = AnimationState{loop = true}},
 	)
 
+	for &entity in sa.slice(&g.entities) {
+		entity_base := get_base_entity_from_union(&entity)
+		tile_set_occupied(&g.tilemap, entity_base.pos)
+	}
+
+	g.entity_select = tile_type_data("assets/tile_select.png")
+
 	game_hot_reloaded(g)
 }
 
@@ -101,6 +111,8 @@ update :: proc() {
 	frame_time := rl.GetFrameTime()
 	g.frame_time = frame_time
 	input: rl.Vector2
+
+	// rl.UpdateMusicStream()
 
 	if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
 		input.y -= 1
@@ -123,9 +135,40 @@ update :: proc() {
 		fmt.println("1, 1:", &(arr[1][1]))
 	}
 
-	input = linalg.normalize0(input)
+	input = la.normalize0(input)
 	g.camera_pos += input * frame_time * 100
 	g.some_number += 1
+
+	// ---------------------------------------------------------------------------
+	// tile hovering
+	mouse_position_screen: [2]f32 = {f32(rl.GetMouseX()), f32(rl.GetMouseY())}
+	mouse_position_texel := rl.GetScreenToWorld2D(mouse_position_screen, game_camera())
+	mouse_position_world := mouse_position_texel / TEXTURE_SCALE_GLOBAL
+
+	if mouse_position_world.x >= 0 &&
+	   mouse_position_world.y >= 0 &&
+	   mouse_position_world.x < MAP_WIDTH &&
+	   mouse_position_world.y < MAP_HEIGHT {
+
+		hover_tile := la.to_u32(mouse_position_world)
+		g.hover_state.hover_region.tile = hover_tile
+		occupied := tile_is_occupied(&g.tilemap, hover_tile)
+		if occupied {
+			g.hover_state.hover_region.entity = ENTITY_HANDLE_INVALID
+			for i in 0 ..< sa.len(g.entities) {
+				entity := sa.get_ptr(&g.entities, i)
+				base_entity := get_base_entity_from_union(entity)
+				if base_entity.pos == hover_tile {
+					g.hover_state.hover_region.entity = EntityHandle(i)
+					break
+				}
+			}
+		}
+		if rl.IsMouseButtonPressed(.LEFT) {
+			g.hover_state.selection =
+				g.hover_state.hover_region if occupied else HIGHLIGHT_STATE_INVALID}
+	}
+
 
 	for &entity in sa.slice(&g.entities) {
 		entity_update_animation(&entity, frame_time)
@@ -142,9 +185,22 @@ draw :: proc() {
 	rl.BeginMode2D(game_camera())
 	tilemap_draw(&g.tilemap)
 	// rl.DrawTextureEx(g.player_texture, g.player_pos, 0, 1, rl.WHITE)
-	rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
-	rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
+	// rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
+	// rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
 	draw_entities(&g.entities, g.frame_time)
+	highlight_tile := g.hover_state.hover_region.tile
+	if tile_in_bounds(highlight_tile) {
+		rl.DrawRectangle(
+			i32(highlight_tile.x) * TEXTURE_SCALE_GLOBAL,
+			i32(highlight_tile.y) * TEXTURE_SCALE_GLOBAL,
+			TEXTURE_SCALE_GLOBAL,
+			TEXTURE_SCALE_GLOBAL,
+			rl.Color{255, 255, 255, 25},
+		)
+	}
+	if g.hover_state.selection.entity != ENTITY_HANDLE_INVALID {
+		draw_tile(g.entity_select, g.hover_state.selection.tile)
+	}
 	rl.EndMode2D()
 
 	rl.BeginMode2D(ui_camera())

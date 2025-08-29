@@ -7,9 +7,9 @@
 // 3. gameplay type
 
 package game
+import "core:fmt"
 import la "core:math/linalg"
 import rl "vendor:raylib"
-import "core:fmt"
 
 MAP_WIDTH :: 64
 MAP_HEIGHT :: 64
@@ -80,28 +80,42 @@ tile_unset_occupied :: proc(tilemap: ^TileMap, coord: [2]u32) {
 	tilemap.occupied[coord.x][index_in_array] &= (~mask)
 }
 
-tile_type_data :: proc(filename : cstring)  -> TileTypeData {
-    texture := rl.LoadTexture(filename)
-    scale := f32(TEXTURE_SCALE_GLOBAL)/f32(texture.width)
-    ret := TileTypeData {
-        texture = texture,
-        texture_scale = scale,
-    }
-    return ret
+tile_type_data :: proc(filename: cstring) -> TileTypeData {
+	texture := rl.LoadTexture(filename)
+	scale := f32(TEXTURE_SCALE_GLOBAL) / f32(texture.width)
+	ret := TileTypeData {
+		texture       = texture,
+		texture_scale = scale,
+	}
+	return ret
 }
 
 
 tilemap_init :: proc(tilemap: ^TileMap) {
-    fmt.println("initializing tilemap")
+	fmt.println("initializing tilemap")
 	tile_type_data := [TileVisuals]TileTypeData {
-		.EMPTY = TileTypeData{},
+		.EMPTY       = TileTypeData{},
 		.FLOOR_DEBUG = tile_type_data("assets/test_64.png"),
-		.WALL_DEBUG = tile_type_data("assets/test_128.png"),
+		.WALL_DEBUG  = tile_type_data("assets/test_128.png"),
 	}
 	fmt.println("tilemap intialized")
 	tilemap.tile_type_data = tile_type_data
 	tilemap.visual_layers[.BASE][0][0] = .FLOOR_DEBUG
 	tilemap.visual_layers[.BASE][0][1] = .WALL_DEBUG
+}
+
+
+draw_tile :: proc(tile_data : TileTypeData, pos: [2]u32) {
+    texture := tile_data.texture
+	scale := tile_data.texture_scale
+    rl.DrawTextureEx(
+					texture,
+					la.to_f32(pos * TEXTURE_SCALE_GLOBAL),
+					0,
+					scale,
+					rl.WHITE,
+				)
+
 }
 
 tilemap_draw :: proc(tilemap: ^TileMap) {
@@ -110,17 +124,7 @@ tilemap_draw :: proc(tilemap: ^TileMap) {
 			for col_idx in 0 ..< u32(MAP_HEIGHT) {
 				visual := tilemap.visual_layers[layer_idx][row_idx][col_idx]
 				if visual == .EMPTY do continue
-				texture := tilemap.tile_type_data[visual].texture
-				scale: = tilemap.tile_type_data[visual].texture_scale
-
-				offset := [2]f32{0, 0}
-				rl.DrawTextureEx(
-					texture,
-					la.to_f32([2]u32{col_idx * 64, row_idx * 64}) - offset,
-					0,
-					scale,
-					rl.WHITE,
-				)
+				draw_tile(tilemap.tile_type_data[visual], [2]u32{col_idx, row_idx})
 			}
 		}
 	}

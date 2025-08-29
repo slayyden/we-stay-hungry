@@ -6,6 +6,6 @@ set -eu
 
 OUT_DIR="build/debug"
 mkdir -p "$OUT_DIR"
-odin build source/main_release -out:$OUT_DIR/game_debug.bin -strict-style -vet -debug
+odin build source/main_release -out:$OUT_DIR/game_debug.bin -strict-style -vet -debug -sanitize:address
 cp -R assets $OUT_DIR
 echo "Debug build created in $OUT_DIR"
