@@ -27,6 +27,7 @@ created.
 
 package game
 
+import clay "../lib/clay-odin"
 import sa "core:container/small_array"
 import "core:fmt"
 import la "core:math/linalg"
@@ -34,7 +35,12 @@ import rl "vendor:raylib"
 
 PIXEL_WINDOW_HEIGHT :: 180
 MAX_ENTITIES :: 16
+WINDOW_WIDTH_INIT :: 1280
+WINDOW_HEIGHT_INIT :: 720
 
+// from https://github.com/nicbarker/clay/issues/420
+// enough for 64 elements
+CLAY_MEMORY_SIZE :: 53_504
 
 Game_Memory :: struct {
 	// stuff that's on the map
@@ -53,12 +59,15 @@ Game_Memory :: struct {
 	// turn ordering
 	round:              u32,
 	turn:               u32,
+	is_player_turn:     bool,
 
 	// hover state
 	hover_state:        HoverState,
 
 	// overlays
 	entity_select:      TileTypeData,
+	clay_arena:         clay.Arena,
+	clay_memory:        [CLAY_MEMORY_SIZE]u8,
 }
 
 
@@ -91,6 +100,14 @@ game_init :: proc() {
 	}
 
 	g.entity_select = tile_type_data("assets/tile_select.png")
+
+	// initialize clay
+	g.clay_arena = clay.CreateArenaWithCapacityAndMemory(CLAY_MEMORY_SIZE, cast(^u8)&g.clay_memory)
+	clay.Initialize(
+		g.clay_arena,
+		{WINDOW_WIDTH_INIT, WINDOW_HEIGHT_INIT},
+		{handler = error_handler},
+	)
 
 	game_hot_reloaded(g)
 }
@@ -184,9 +201,6 @@ draw :: proc() {
 
 	rl.BeginMode2D(game_camera())
 	tilemap_draw(&g.tilemap)
-	// rl.DrawTextureEx(g.player_texture, g.player_pos, 0, 1, rl.WHITE)
-	// rl.DrawRectangleV({20, 20}, {10, 10}, rl.RED)
-	// rl.DrawRectangleV({-30, -20}, {10, 10}, rl.GREEN)
 	draw_entities(&g.entities, g.frame_time)
 	highlight_tile := g.hover_state.hover_region.tile
 	if tile_in_bounds(highlight_tile) {
@@ -233,7 +247,7 @@ game_update :: proc() {
 @(export)
 game_init_window :: proc() {
 	rl.SetConfigFlags({.WINDOW_RESIZABLE, .VSYNC_HINT})
-	rl.InitWindow(1280, 720, "Odin + Raylib + Hot Reload template!")
+	rl.InitWindow(WINDOW_WIDTH_INIT, WINDOW_HEIGHT_INIT, "Odin + Raylib + Hot Reload template!")
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(60)
 	rl.SetExitKey(nil)
