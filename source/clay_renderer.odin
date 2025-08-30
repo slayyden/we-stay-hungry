@@ -19,6 +19,40 @@ measure_text :: proc "c" (
 	config: ^clay.TextElementConfig,
 	userData: rawptr,
 ) -> clay.Dimensions {
+
+	fontToUse := rl.GetFontDefault()
+	scaleFactor := f32(config.fontSize) / f32(fontToUse.baseSize)
+
+	maxTextWidth: f32 = 0.0
+	lineTextWidth: f32 = 0
+	maxLineCharCount := 0
+	lineCharCount := 0
+	for i in 0 ..< text.length {
+		if (text.chars[i] == '\n') {
+			maxTextWidth = max(maxTextWidth, lineTextWidth)
+			maxLineCharCount = max(maxLineCharCount, lineCharCount)
+			lineTextWidth = 0
+			lineCharCount = 0
+			continue
+		}
+		index := text.chars[i] - 32
+		if fontToUse.glyphs[index].advanceX !=
+		   0 {lineTextWidth += f32(fontToUse.glyphs[index].advanceX)} else {lineTextWidth += fontToUse.recs[index].width + f32(fontToUse.glyphs[index].offsetX)}
+		lineCharCount += 1
+	}
+
+	maxTextWidth = max(maxTextWidth, lineTextWidth)
+	maxLineCharCount = max(maxLineCharCount, lineCharCount)
+
+	textHeight := f32(config.fontSize)
+
+	textSize := clay.Dimensions {
+		width  = maxTextWidth * scaleFactor + f32(lineCharCount * int(config.letterSpacing)),
+		height = textHeight,
+	}
+	return textSize
+	/*
+
 	line_width: f32 = 0
 
 	// font := raylib_fonts[config.fontId].font
@@ -36,7 +70,9 @@ measure_text :: proc "c" (
 		}
 	}
 
-	return {width = line_width / 2, height = f32(config.fontSize)}
+	return {width = line_width, height = f32(config.fontSize)}
+
+	*/
 }
 
 clay_raylib_render :: proc(

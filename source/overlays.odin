@@ -23,8 +23,18 @@ Action :: enum {
 	ATTACK,
 }
 
+MenuHover :: distinct struct {
+}
+HoverRegionInvalid :: distinct struct {
+}
+
 HoverState :: struct {
 	selection:       HighlightState,
-	hover_region:    HighlightState,
+	hover_region:    union {
+		struct {
+		},
+		MenuHover,
+		HighlightState,
+	},
 	selected_action: Action,
 }

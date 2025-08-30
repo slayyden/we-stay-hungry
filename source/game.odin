@@ -70,6 +70,8 @@ Game_Memory :: struct {
 	clay_memory:          [^]u8,
 	attack_menu:          Maybe(FloatingMenuState),
 	attack_menu_commands: clay.ClayArray(clay.RenderCommand),
+	click_consumed:       bool,
+	attack_click_data:    ClickData,
 }
 
 
@@ -102,6 +104,10 @@ game_init :: proc() {
 	}
 
 	g.entity_select = tile_type_data("assets/tile_select.png")
+	g.attack_click_data = ClickData {
+		action         = .ATTACK,
+		click_consumed = &g.click_consumed,
+	}
 
 
 	game_hot_reloaded(g)
@@ -123,6 +129,13 @@ update :: proc() {
 	frame_time := rl.GetFrameTime()
 	g.frame_time = frame_time
 	input: rl.Vector2
+	if (&g.click_consumed == nil) {
+		fmt.println("fuck")
+		panic("bruh")
+	} else {
+		// fmt.println("ok")
+	}
+	// g.click_consumed = false
 
 	// rl.UpdateMusicStream()
 
@@ -157,41 +170,52 @@ update :: proc() {
 	mouse_position_texel := rl.GetScreenToWorld2D(mouse_position_screen, game_camera())
 	mouse_position_world := mouse_position_texel / TEXTURE_SCALE_GLOBAL
 
+
+	g.click_consumed = false
+	hovered_tile_occupied := false
+	hovered_tile := HIGHLIGHT_STATE_INVALID
+
+
 	if mouse_position_world.x >= 0 &&
 	   mouse_position_world.y >= 0 &&
 	   mouse_position_world.x < MAP_WIDTH &&
 	   mouse_position_world.y < MAP_HEIGHT {
 
 		hover_tile := la.to_u32(mouse_position_world)
-		g.hover_state.hover_region.tile = hover_tile
-		occupied := tile_is_occupied(&g.tilemap, hover_tile)
-		if occupied {
-			g.hover_state.hover_region.entity = ENTITY_HANDLE_INVALID
+		hovered_tile.tile = hover_tile
+		hovered_tile_occupied = tile_is_occupied(&g.tilemap, hover_tile)
+		if hovered_tile_occupied {
 			for i in 0 ..< sa.len(g.entities) {
 				entity := sa.get_ptr(&g.entities, i)
 				base_entity := get_base_entity_from_union(entity)
 				if base_entity.pos == hover_tile {
-					g.hover_state.hover_region.entity = EntityHandle(i)
+					hovered_tile.entity = EntityHandle(i)
 					break
 				}
 			}
 		}
-		if rl.IsMouseButtonPressed(.LEFT) {
-			g.hover_state.selection =
-				g.hover_state.hover_region if occupied else HIGHLIGHT_STATE_INVALID
-			if occupied && g.hover_state.hover_region.entity == g.player {
-				g.attack_menu = FloatingMenuState(rl.GetMousePosition())
-			} else {
-				g.attack_menu = nil
-			}
-		}
 	}
 
+	attack_menu_hovered := false
 	if attack_menu, ok := g.attack_menu.?; ok {
-		g.attack_menu_commands = action_menu_layout_new(attack_menu)
-		if rl.IsKeyPressed(.T) {
-			fmt.println(clay.RenderCommandArray_Get(&g.attack_menu_commands, 0))
+		g.attack_menu_commands, attack_menu_hovered = action_menu_layout_new(attack_menu)
+		if (g.attack_menu == nil) {
+			g.attack_menu_commands = clay.ClayArray(clay.RenderCommand){} // empty array
 		}
+	} else {
+		g.attack_menu_commands = clay.ClayArray(clay.RenderCommand){} // empty array
+	}
+	if !attack_menu_hovered {
+		g.hover_state.hover_region = hovered_tile
+	}
+	if rl.IsMouseButtonPressed(.LEFT) {
+		if 
+		   highlight_state, hovering_tile := g.hover_state.hover_region.(HighlightState); hovering_tile && !attack_menu_hovered && hovered_tile_occupied && highlight_state.entity == g.player {
+			g.attack_menu = FloatingMenuState(rl.GetMousePosition())
+		} else {
+			g.attack_menu = nil
+		}
+
 	}
 
 
@@ -202,6 +226,7 @@ update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
 		g.run = false
 	}
+
 }
 
 draw :: proc() {
@@ -211,7 +236,10 @@ draw :: proc() {
 	rl.BeginMode2D(game_camera())
 	tilemap_draw(&g.tilemap)
 	draw_entities(&g.entities, g.frame_time)
-	highlight_tile := g.hover_state.hover_region.tile
+	highlight_tile: [2]u32 = {U32_MAX, U32_MAX}
+	if highlight_state, tile_hovered := g.hover_state.hover_region.(HighlightState); tile_hovered {
+		highlight_tile = highlight_state.tile
+	}
 	if tile_in_bounds(highlight_tile) {
 		rl.DrawRectangle(
 			i32(highlight_tile.x) * TEXTURE_SCALE_GLOBAL,
@@ -226,19 +254,21 @@ draw :: proc() {
 	}
 	rl.EndMode2D()
 
+	clay_raylib_render(&g.attack_menu_commands)
+
 	rl.BeginMode2D(ui_camera())
 	// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
 	// cleared at the end of the frame by the main application, meaning inside
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
+	rl.DrawText(fmt.ctprintf("mouse_pos: %v", rl.GetMousePosition()), 5, 5, 8, rl.WHITE)
 	rl.DrawText(
-		fmt.ctprintf("some_number: %v\nplayer_pos: %v", g.some_number, g.camera_pos),
+		fmt.ctprintf("attack menu nil: %s", "true" if g.attack_menu == nil else "false"),
 		5,
-		5,
+		5 + 8,
 		8,
 		rl.WHITE,
 	)
 
-	clay_raylib_render(&g.attack_menu_commands)
 
 	rl.EndMode2D()
 
@@ -312,6 +342,7 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), g.clay_memory)
 	clay.Initialize(arena, {1080, 720}, {handler = error_handler})
 	clay.SetMeasureTextFunction(measure_text, nil)
+	// clay.SetDebugModeEnabled(true)
 }
 
 @(export)
