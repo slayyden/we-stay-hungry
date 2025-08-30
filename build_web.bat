@@ -23,7 +23,7 @@ for /f "delims=" %%i in ('odin root') do set "ODIN_PATH=%%i"
 
 copy "%ODIN_PATH%\core\sys\wasm\js\odin.js" %OUT_DIR%
 
-set files=%OUT_DIR%\game.wasm.o "%ODIN_PATH%\vendor\raylib\wasm\libraylib.a" "%ODIN_PATH%\vendor\raylib\wasm\libraygui.a"
+set files=%OUT_DIR%\game.wasm.o "%ODIN_PATH%\vendor\raylib\wasm\libraylib.a" "%ODIN_PATH%\vendor\raylib\wasm\libraygui.a" ".\lib\clay-odin\wasm\clay.o"
 
 :: index_template.html contains the javascript code that calls the procedures in
 :: source/main_web/main_web.odin
@@ -35,6 +35,6 @@ set flags=-sUSE_GLFW=3 -sWASM_BIGINT -sWARN_ON_UNDEFINED_SYMBOLS=0 -sASSERTIONS 
 :: it does not run the lines that follow it.
 cmd /c emcc -o %OUT_DIR%\index.html %files% %flags%
 
-del %OUT_DIR%\game.wasm.o 
+del %OUT_DIR%\game.wasm.o
 
 echo Web build created in %OUT_DIR%

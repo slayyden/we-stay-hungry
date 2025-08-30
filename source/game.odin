@@ -40,34 +40,36 @@ WINDOW_HEIGHT_INIT :: 720
 
 // from https://github.com/nicbarker/clay/issues/420
 // enough for 64 elements
-CLAY_MEMORY_SIZE :: 53_504
+CLAY_MEMORY_SIZE :: 53504
 
 Game_Memory :: struct {
 	// stuff that's on the map
-	tilemap:            TileMap,
-	entities:           sa.Small_Array(MAX_ENTITIES, AnyEntity), // sparse array
-	animation_database: AnimationDatabase,
-	frame_time:         f32,
-	camera_pos:         rl.Vector2,
-	player_texture:     rl.Texture,
-	some_number:        int,
-	run:                bool,
+	tilemap:              TileMap,
+	entities:             sa.Small_Array(MAX_ENTITIES, AnyEntity), // sparse array
+	animation_database:   AnimationDatabase,
+	frame_time:           f32,
+	camera_pos:           rl.Vector2,
+	player_texture:       rl.Texture,
+	some_number:          int,
+	run:                  bool,
 
 	// important entities
-	player:             EntityHandle,
+	player:               EntityHandle,
 
 	// turn ordering
-	round:              u32,
-	turn:               u32,
-	is_player_turn:     bool,
+	round:                u32,
+	turn:                 u32,
+	is_player_turn:       bool,
 
 	// hover state
-	hover_state:        HoverState,
+	hover_state:          HoverState,
 
 	// overlays
-	entity_select:      TileTypeData,
-	clay_arena:         clay.Arena,
-	clay_memory:        [CLAY_MEMORY_SIZE]u8,
+	entity_select:        TileTypeData,
+	clay_arena:           clay.Arena,
+	clay_memory:          [^]u8,
+	attack_menu:          Maybe(FloatingMenuState),
+	attack_menu_commands: clay.ClayArray(clay.RenderCommand),
 }
 
 
@@ -101,13 +103,6 @@ game_init :: proc() {
 
 	g.entity_select = tile_type_data("assets/tile_select.png")
 
-	// initialize clay
-	g.clay_arena = clay.CreateArenaWithCapacityAndMemory(CLAY_MEMORY_SIZE, cast(^u8)&g.clay_memory)
-	clay.Initialize(
-		g.clay_arena,
-		{WINDOW_WIDTH_INIT, WINDOW_HEIGHT_INIT},
-		{handler = error_handler},
-	)
 
 	game_hot_reloaded(g)
 }
@@ -183,13 +178,24 @@ update :: proc() {
 		}
 		if rl.IsMouseButtonPressed(.LEFT) {
 			g.hover_state.selection =
-				g.hover_state.hover_region if occupied else HIGHLIGHT_STATE_INVALID}
+				g.hover_state.hover_region if occupied else HIGHLIGHT_STATE_INVALID
+			if occupied && g.hover_state.hover_region.entity == g.player {
+				g.attack_menu = FloatingMenuState(rl.GetMousePosition())
+			} else {
+				g.attack_menu = nil
+			}
+		}
+	}
+
+	if attack_menu, ok := g.attack_menu.?; ok {
+		g.attack_menu_commands = action_menu_layout_new(attack_menu)
 	}
 
 
 	for &entity in sa.slice(&g.entities) {
 		entity_update_animation(&entity, frame_time)
 	}
+
 	if rl.IsKeyPressed(.ESCAPE) {
 		g.run = false
 	}
@@ -268,6 +274,7 @@ game_should_run :: proc() -> bool {
 
 @(export)
 game_shutdown :: proc() {
+	free(g.clay_memory)
 	free(g)
 }
 
@@ -292,6 +299,14 @@ game_hot_reloaded :: proc(mem: rawptr) {
 
 	// Here you can also set your own global variables. A good idea is to make
 	// your global variables into pointers that point to something inside `g`.
+	//
+	// initialize clay
+	clay.SetMaxElementCount(128)
+	min_memory_size := clay.MinMemorySize()
+	fmt.println("min_memory_size:", min_memory_size)
+	g.clay_memory = make([^]u8, min_memory_size)
+	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), g.clay_memory)
+	clay.Initialize(arena, {1080, 720}, {handler = error_handler})
 }
 
 @(export)

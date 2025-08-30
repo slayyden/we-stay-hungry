@@ -1,10 +1,8 @@
 package game
 import clay "../lib/clay-odin"
-import "core:c"
 import "core:math"
 import la "core:math/linalg"
 import "core:mem"
-import "core:strings"
 import rl "vendor:raylib"
 
 clay_color_to_raylib_color :: proc(color: clay.Color) -> rl.Color {
@@ -195,7 +193,7 @@ Clay_Raylib_Render :: proc(
 			{
 				imageTexture := (^rl.Texture2D)(renderCommand.renderData.image.imageData)
 				tintColor := renderCommand.renderData.image.backgroundColor
-				if (tintColor == [4]c.float{0, 0, 0, 0}) {
+				if (tintColor == [4]f32{0, 0, 0, 0}) {
 					tintColor = (clay.Color){255, 255, 255, 255}
 				}
 				rl.DrawTexturePro(
