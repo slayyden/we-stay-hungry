@@ -189,6 +189,9 @@ update :: proc() {
 
 	if attack_menu, ok := g.attack_menu.?; ok {
 		g.attack_menu_commands = action_menu_layout_new(attack_menu)
+		if rl.IsKeyPressed(.T) {
+			fmt.println(clay.RenderCommandArray_Get(&g.attack_menu_commands, 0))
+		}
 	}
 
 
@@ -224,7 +227,6 @@ draw :: proc() {
 	rl.EndMode2D()
 
 	rl.BeginMode2D(ui_camera())
-
 	// NOTE: `fmt.ctprintf` uses the temp allocator. The temp allocator is
 	// cleared at the end of the frame by the main application, meaning inside
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
@@ -235,6 +237,8 @@ draw :: proc() {
 		8,
 		rl.WHITE,
 	)
+
+	clay_raylib_render(&g.attack_menu_commands)
 
 	rl.EndMode2D()
 
@@ -307,6 +311,7 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	g.clay_memory = make([^]u8, min_memory_size)
 	arena: clay.Arena = clay.CreateArenaWithCapacityAndMemory(uint(min_memory_size), g.clay_memory)
 	clay.Initialize(arena, {1080, 720}, {handler = error_handler})
+	clay.SetMeasureTextFunction(measure_text, nil)
 }
 
 @(export)

@@ -23,13 +23,37 @@ FloatingMenuState :: distinct [2]f32
 action_menu_layout_new :: proc(
 	menu_state: FloatingMenuState,
 ) -> clay.ClayArray(clay.RenderCommand) {
+
+	text_config := clay.TextElementConfig {
+		fontSize  = 24,
+		textColor = clay.Color{255, 0, 0, 255},
+	}
 	clay.BeginLayout()
 	if clay.UI()(
 	{
-		id = clay.ID("AttackMenuRoot"),
-		floating = {offset = cast([2]f32)menu_state, expand = {16, 16}},
-		backgroundColor = clay.Color{255, 255, 255, 255},
+		id = clay.ID("OuterContainer"),
+		layout = {
+			sizing = {width = clay.SizingGrow({}), height = clay.SizingGrow({})},
+			padding = {16, 16, 16, 16},
+			childGap = 16,
+		},
+		backgroundColor = {250, 250, 255, 0},
 	},
-	) {}
+	) {
+		if clay.UI()(
+		{
+			id = clay.ID("AttackMenuRoot"),
+			layout = {
+				sizing = {width = clay.SizingGrow({}), height = clay.SizingGrow({})},
+				layoutDirection = .TopToBottom,
+			},
+			floating = {offset = cast([2]f32)menu_state},
+			backgroundColor = clay.Color{255, 255, 255, 255},
+		},
+		) {
+			clay.Text("Attack", &text_config)
+		}
+
+	}
 	return clay.EndLayout()
 }
