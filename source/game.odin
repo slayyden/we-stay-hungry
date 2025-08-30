@@ -104,10 +104,6 @@ game_init :: proc() {
 	}
 
 	g.entity_select = tile_type_data("assets/tile_select.png")
-	g.attack_click_data = ClickData {
-		action         = .ATTACK,
-		click_consumed = &g.click_consumed,
-	}
 
 
 	game_hot_reloaded(g)
@@ -164,6 +160,22 @@ update :: proc() {
 	g.camera_pos += input * frame_time * 100
 	g.some_number += 1
 
+
+	// dijkstra
+	move_tiles: MoveTiles
+	get_move_tiles(&move_tiles)
+	assert(sa.cap(move_tiles) < 255)
+
+	if rl.IsKeyPressed(.G) {
+
+		fmt.println("max_move_tiles:", MAX_MOVE_TILES)
+		fmt.println("num_move_tiles:", sa.len(move_tiles))
+		fmt.println("move_tiles:")
+		for tile in sa.slice(&move_tiles) {
+			fmt.println(tile)
+		}
+	}
+
 	// ---------------------------------------------------------------------------
 	// tile hovering
 	mouse_position_screen: [2]f32 = {f32(rl.GetMouseX()), f32(rl.GetMouseY())}
@@ -199,10 +211,9 @@ update :: proc() {
 	attack_menu_hovered := false
 	if attack_menu, ok := g.attack_menu.?; ok {
 		g.attack_menu_commands, attack_menu_hovered = action_menu_layout_new(attack_menu)
-		if (g.attack_menu == nil) {
-			g.attack_menu_commands = clay.ClayArray(clay.RenderCommand){} // empty array
-		}
-	} else {
+	}
+	// not an else because action_menu_layout may set g.attack_menu to nil
+	if (g.attack_menu == nil) {
 		g.attack_menu_commands = clay.ClayArray(clay.RenderCommand){} // empty array
 	}
 	if !attack_menu_hovered {
@@ -212,8 +223,10 @@ update :: proc() {
 		if 
 		   highlight_state, hovering_tile := g.hover_state.hover_region.(HighlightState); hovering_tile && !attack_menu_hovered && hovered_tile_occupied && highlight_state.entity == g.player {
 			g.attack_menu = FloatingMenuState(rl.GetMousePosition())
+			g.hover_state.selection = highlight_state
 		} else {
 			g.attack_menu = nil
+			g.hover_state.selection = HIGHLIGHT_STATE_INVALID
 		}
 
 	}
@@ -262,7 +275,7 @@ draw :: proc() {
 	// `main_hot_reload.odin`, `main_release.odin` or `main_web_entry.odin`.
 	rl.DrawText(fmt.ctprintf("mouse_pos: %v", rl.GetMousePosition()), 5, 5, 8, rl.WHITE)
 	rl.DrawText(
-		fmt.ctprintf("attack menu nil: %s", "true" if g.attack_menu == nil else "false"),
+		fmt.ctprintf("selected_action: %s", g.hover_state.selected_action),
 		5,
 		5 + 8,
 		8,
@@ -327,6 +340,9 @@ game_memory_size :: proc() -> int {
 	return size_of(Game_Memory)
 }
 
+attack_click_data: ClickData
+move_click_data: ClickData
+
 @(export)
 game_hot_reloaded :: proc(mem: rawptr) {
 	g = (^Game_Memory)(mem)
@@ -343,6 +359,20 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	clay.Initialize(arena, {1080, 720}, {handler = error_handler})
 	clay.SetMeasureTextFunction(measure_text, nil)
 	// clay.SetDebugModeEnabled(true)
+	//
+	//
+	// global variables
+
+	attack_click_data = ClickData {
+		action = .ATTACK,
+	}
+	move_click_data = ClickData {
+		action = .MOVE,
+	}
+
+	player_ptr := get_base_entity_from_union(sa.get_ptr(&g.entities, 0))
+	player_ptr.pos = [2]u32{3, 3}
+
 }
 
 @(export)

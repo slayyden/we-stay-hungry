@@ -13,8 +13,7 @@ UIElementType :: enum {
 }
 
 ClickData :: struct {
-	action:         Action,
-	click_consumed: ^bool,
+	action: Action,
 }
 
 handle_button_interaction :: proc "c" (
@@ -24,12 +23,6 @@ handle_button_interaction :: proc "c" (
 ) {
 	context = runtime.default_context()
 	click_data := cast(^ClickData)userData
-	// fmt.println("INSIDE FUNCTION")
-	// fmt.println("pointer_info:", pointerInfo)
-	// fmt.println("click_data:", click_data)
-	// fmt.println("click_data_address:", userData)
-	// Pointer state allows you to detect mouse down / hold / release
-	// Do some click handling
 	if pointerInfo.state == .PressedThisFrame {
 		g.hover_state.selected_action = click_data.action
 		fmt.println(g.hover_state.selected_action)
@@ -127,14 +120,20 @@ action_menu_layout_new :: proc(
 					backgroundColor = clay.Color{0, 255, 0, 25 if clay.Hovered() else 0},
 				},
 				) {
-					// fmt.println("OUTSIDE FUNCTION")
-					// fmt.println("attack_click_data", g.attack_click_data)
-					// fmt.println("attack_click_data_address", rawptr(&g.attack_click_data))
 
-					clay.OnHover(handle_button_interaction, &g.attack_click_data)
+					clay.OnHover(handle_button_interaction, &attack_click_data)
 					clay.Text("Attack", &text_config)
 				}
-				clay.Text("Move", &text_config)
+				if clay.UI()(
+				{
+					layout = {sizing = {width = clay.SizingGrow({})}},
+					backgroundColor = clay.Color{0, 255, 0, 25 if clay.Hovered() else 0},
+				},
+				) {
+
+					clay.OnHover(handle_button_interaction, &move_click_data)
+					clay.Text("Move", &text_config)
+				}
 				clay.Text("Skbidi Rizz", &text_config)
 			}
 			if clay.UI()(
