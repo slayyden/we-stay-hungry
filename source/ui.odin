@@ -16,6 +16,17 @@ ClickData :: struct {
 	action: Action,
 }
 
+end_turn_button :: proc "c" (
+	elementId: clay.ElementId,
+	pointerInfo: clay.PointerData,
+	userData: rawptr,
+) {
+	if rl.IsMouseButtonPressed(.LEFT) {
+		g.turn += 1
+		g.click_consumed = true
+		g.attack_menu = nil
+	}
+}
 handle_button_interaction :: proc "c" (
 	elementId: clay.ElementId,
 	pointerInfo: clay.PointerData,
@@ -48,8 +59,6 @@ action_menu_layout_new :: proc(
 	clay.ClayArray(clay.RenderCommand),
 	bool,
 ) {
-
-
 	font_size := u16(math.round_f32(f32(rl.GetScreenHeight()) / 20.0))
 	text_config := clay.TextElementConfig {
 		fontSize      = font_size,
@@ -135,7 +144,15 @@ action_menu_layout_new :: proc(
 					clay.OnHover(handle_button_interaction, &move_click_data)
 					clay.Text("Move", &text_config)
 				}
-				clay.Text("Skbidi Rizz", &text_config)
+				if clay.UI()(
+				{
+					layout = {sizing = {width = clay.SizingGrow({})}},
+					backgroundColor = clay.Color{0, 255, 0, 25 if clay.Hovered() else 0},
+				},
+				) {
+					clay.OnHover(end_turn_button, nil)
+					clay.Text("End Turn", &text_config)
+				}
 			}
 			if clay.UI()(
 			{

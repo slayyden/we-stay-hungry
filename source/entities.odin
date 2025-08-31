@@ -110,7 +110,17 @@ animation_database_init :: proc(animation_database: ^AnimationDatabase) {
 	animation_database.die_yaki_animations[.IDLE] = animation_data_new(
 		"assets/die_yaki_idle.png",
 		4,
+		6,
+	)
+	animation_database.die_yaki_animations[.MOVE] = animation_data_new(
+		"assets/die_yaki_walk.png",
 		5,
+		6,
+	)
+	animation_database.die_yaki_animations[.DEAD] = animation_data_new(
+		"assets/die_yaki_dead.png",
+		1,
+		0,
 	)
 }
 
@@ -118,10 +128,14 @@ DieYakiAnim :: enum {
 	IDLE,
 	ATTACK,
 	MOVE,
+	DEAD,
 }
 
 DieYaki :: struct {
 	using entity_base: EntityBase,
+	granular_position: [2]f32,
+	path:              DieYakiPath,
+	t:                 f32,
 }
 
 Enemy2 :: struct {
@@ -168,7 +182,7 @@ draw_entities :: proc(
 		source_rec := rl.Rectangle {
 			x      = frame_width * f32(animation_state.frame),
 			y      = 0,
-			width  = f32(texture.width) / 4.0,
+			width  = frame_width,
 			height = f32(texture.height),
 		}
 		dest_rect := rl.Rectangle {
@@ -339,23 +353,25 @@ manhattan_distance_u32_array :: proc(x: [$N]u32, y: [N]u32) -> u32 {
 
 DIE_YAKI_RANGE :: PLAYER_SPEED * 2
 DIE_YAKI_SEARCH_RANGE :: 16
-
+DieYakiPath :: sa.Small_Array(DIE_YAKI_SEARCH_RANGE, [2]u32)
 ASTAR_SET_SIZE :: 4 * ((DIE_YAKI_SEARCH_RANGE * (DIE_YAKI_SEARCH_RANGE + 1)) / 2) + 1
 
 import "core:fmt"
 OpenSet :: sa.Small_Array(ASTAR_SET_SIZE, PathFindTile)
 FinalSet :: sa.Small_Array(ASTAR_SET_SIZE, PathFindTile)
-getNextTile :: #force_inline proc(
+get_astar_path :: #force_inline proc(
 	start: [2]u32,
 	final_set: FinalSet,
 	goal: PathFindTile,
-) -> [2]u32 {
+) -> DieYakiPath {
+	path: DieYakiPath
 	curr := goal
 	for distance_to_player := 0; distance_to_player < DIE_YAKI_RANGE; distance_to_player += 1 {
 		fmt.println("curr:", curr)
+		sa.push_back(&path, curr.pos)
 		curr = sa.get(final_set, int(curr.prev))
 	}
-	return curr.pos
+	return path
 }
 
 PathFindTile :: struct {
@@ -365,7 +381,7 @@ PathFindTile :: struct {
 	prev:    u16, // pointer in move_tile array
 }
 
-aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) {
+aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> (path: DieYakiPath, ok: bool) {
 	fmt.println("astar set size:", ASTAR_SET_SIZE)
 	assert(start != goal)
 	// The set of discovered nodes that may need to be (re-)expanded.
@@ -403,7 +419,7 @@ aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) 
 
 
 		// we found the end
-		if curr.pos == goal do return getNextTile(start, final_set, curr), true
+		if curr.pos == goal do return get_astar_path(start, final_set, curr), true
 
 		sa.unordered_remove(&open_set, index_in_openSet)
 
@@ -449,5 +465,21 @@ aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) 
 	}
 
 	// Open set is empty but goal was never reached
-	return [2]u32{U32_MAX, U32_MAX}, false
+	return path, ok
+}
+
+import "core:math"
+import la "core:math/linalg"
+
+entity_lerp_path :: proc(entity: ^EntityBase, path: DieYakiPath, t: f32) -> [2]f32 {
+	assert(-0.0001 <= t && t <= 1.0001)
+	t_scaled := t * f32(sa.len(path) - 1)
+	index_start := int(math.floor(t_scaled))
+	index_end := int(math.ceil(t_scaled))
+
+	lerp_point_start := la.to_f32(sa.get(path, index_start))
+	lerp_point_end := la.to_f32(sa.get(path, index_end))
+
+	t_lerp := math.mod_f32(t, 1.0)
+	return math.lerp(lerp_point_start, lerp_point_end, t_lerp)
 }

@@ -30,7 +30,9 @@ package game
 import clay "../lib/clay-odin"
 import sa "core:container/small_array"
 import "core:fmt"
+import "core:math"
 import la "core:math/linalg"
+import rand "core:math/rand"
 import rl "vendor:raylib"
 
 // PIXEL_WINDOW_HEIGHT :: 180
@@ -80,9 +82,12 @@ Game_Memory :: struct {
 	hovered_tile_movable:      bool,
 	hovered_tile_attackable:   bool,
 	hovered_tile_in_move_tile: u32,
-
+	has_won:                   bool,
 	// sounds
 	music:                     rl.Music,
+	die_yaki_death:            rl.Sound,
+	bonks:                     [3]rl.Sound,
+	win:                       rl.Sound,
 }
 
 
@@ -101,6 +106,13 @@ game_init :: proc() {
 		},
 		player = 0,
 		music = rl.LoadMusicStream("assets/Combat - High HP.mp3"),
+		die_yaki_death = rl.LoadSound("assets/DieyakiDeath.mp3"),
+		bonks = {
+			rl.LoadSound("assets/Bonk1.mp3"),
+			rl.LoadSound("assets/Bonk2.mp3"),
+			rl.LoadSound("assets/Bonk3.mp3"),
+		},
+		win = rl.LoadSound("assets/win.mp3"),
 	}
 
 	tilemap_init(&g.tilemap)
@@ -142,6 +154,8 @@ update :: proc() {
 	frame_time := rl.GetFrameTime()
 	g.frame_time = frame_time
 	input: rl.Vector2
+	g.turn %= u32(sa.len(g.entities))
+	g.is_player_turn = (g.turn == u32(g.player))
 
 	rl.UpdateMusicStream(g.music)
 
@@ -168,17 +182,28 @@ update :: proc() {
 	assert(sa.cap(g.move_tiles) < 255)
 	g.neighboring_tiles, g.attack_tiles = get_attack_tiles(player_position, &g.tilemap)
 
-	if rl.IsKeyPressed(.G) {
-		die_yaki_base := get_base_entity_from_union(sa.get_ptr(&g.entities, 1))
-		dist := manhattan_distance_u32_array(die_yaki_base.pos, player_position)
-		if dist > DIE_YAKI_RANGE && dist < DIE_YAKI_SEARCH_RANGE {
-			move_to, ok := aStar(die_yaki_base.pos, player_position, &g.tilemap)
-			fmt.println("move_to:", move_to)
-			if (ok) {
-				entity_move(die_yaki_base, &g.tilemap, move_to)
+	if !g.is_player_turn {
+		enemy := sa.get_ptr(&g.entities, int(g.turn))
+		switch &e in enemy {
+		case PlayerChar:
+			assert(false)
+		case DieYaki:
+			die_yaki_base := get_base_entity_from_union(enemy)
+			dist := manhattan_distance_u32_array(die_yaki_base.pos, player_position)
+			if dist > DIE_YAKI_RANGE &&
+			   dist < DIE_YAKI_SEARCH_RANGE &&
+			   die_yaki_base.animation_state.animation.die_yaki_anim != .MOVE {
+				path, ok := aStar(die_yaki_base.pos, player_position, &g.tilemap)
+				if (ok) {
+					die_yaki_base.animation_state.animation.die_yaki_anim = .MOVE
+					die_yaki_base.animation_state.loop = true
+					entity_move(die_yaki_base, &g.tilemap, sa.get(path, sa.len(path) - 1))
+					e.path = path
+					e.t = 0
+				}
+			} else {
+				fmt.println("dist:", dist)
 			}
-		} else {
-			fmt.println("dist:", dist)
 		}
 	}
 
@@ -237,7 +262,7 @@ update :: proc() {
 	} else {
 		g.hover_state.hover_region = MenuHover{}
 	}
-	if rl.IsMouseButtonPressed(.LEFT) {
+	if rl.IsMouseButtonPressed(.LEFT) && g.is_player_turn {
 
 		fmt.println("attack_menu_hovered:", attack_menu_hovered)
 		fmt.println("hover state:", g.hover_state)
@@ -259,8 +284,12 @@ update :: proc() {
 			case .NONE:
 			case .ATTACK:
 				for attack_tile in sa.slice(&g.attack_tiles) {
-					if highlight_state.tile == attack_tile {
-						// TODO: implement the attack
+					if highlight_state.tile == attack_tile &&
+					   highlight_state.entity != ENTITY_HANDLE_INVALID {
+						entity := sa.get_ptr(&g.entities, int(highlight_state.entity))
+						base_entity := get_base_entity_from_union(entity)
+						base_entity.health -= i32(math.round_f32(rand.float32() * 4 + 1))
+						rl.PlaySound(rand.choice(g.bonks[:]))
 						g.hover_state.selected_action = .NONE
 						g.hover_state.selection = HIGHLIGHT_STATE_INVALID
 						break
@@ -286,7 +315,32 @@ update :: proc() {
 
 
 	for &entity in sa.slice(&g.entities) {
+		if die_yaki, ok := entity.(DieYaki); ok && die_yaki.health <= 0 {
+			base_entity := get_base_entity_from_union(&entity)
+			if base_entity.animation_state.animation.die_yaki_anim != .DEAD {
+				rl.PlaySound(g.die_yaki_death)
+			}
+			base_entity.animation_state.animation.die_yaki_anim = .DEAD
+		}
 		entity_update_animation(&entity, frame_time)
+	}
+
+	// check if we win
+	if !g.has_won {
+		all_dead := true
+		for entity in sa.slice(&g.entities) {
+			switch e in entity {
+			case PlayerChar:
+				continue
+			case DieYaki:
+				if e.health > 0 do all_dead = false
+			}
+		}
+		if all_dead {
+			rl.PauseMusicStream(g.music)
+			rl.PlaySound(g.win)
+			g.has_won = true
+		}
 	}
 
 	if rl.IsKeyPressed(.ESCAPE) {
@@ -314,8 +368,9 @@ draw :: proc() {
 			rl.Color{255, 255, 255, 25},
 		)
 	}
-
-	if g.hover_state.selected_action == .MOVE {
+	switch g.hover_state.selected_action {
+	case .NONE:
+	case .MOVE:
 		for tile in sa.slice(&g.move_tiles)[1:] {
 			rl.DrawRectangle(
 				i32(tile.pos.x) * TEXTURE_SCALE_GLOBAL,
@@ -363,8 +418,24 @@ draw :: proc() {
 				next = curr
 				curr = prev
 			}
-
 		}
+	case .ATTACK:
+		for tile in sa.slice(&g.neighboring_tiles) {
+			rl.DrawRectangle(
+				i32(tile.x) * TEXTURE_SCALE_GLOBAL,
+				i32(tile.y) * TEXTURE_SCALE_GLOBAL,
+				TEXTURE_SCALE_GLOBAL,
+				TEXTURE_SCALE_GLOBAL,
+				rl.Color{0, 0, 255, 25},
+			)}
+		for tile in sa.slice(&g.attack_tiles) {
+			rl.DrawRectangle(
+				i32(tile.x) * TEXTURE_SCALE_GLOBAL,
+				i32(tile.y) * TEXTURE_SCALE_GLOBAL,
+				TEXTURE_SCALE_GLOBAL,
+				TEXTURE_SCALE_GLOBAL,
+				rl.Color{255, 0, 0, 50},
+			)}
 	}
 
 	if g.hover_state.selection.entity != ENTITY_HANDLE_INVALID {
@@ -419,7 +490,7 @@ game_init_window :: proc() {
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(60)
 	rl.SetExitKey(nil)
-	// rl.InitAudioDevice()
+	rl.InitAudioDevice()
 }
 
 
