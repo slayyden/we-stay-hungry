@@ -44,34 +44,37 @@ CLAY_MEMORY_SIZE :: 53504
 
 Game_Memory :: struct {
 	// stuff that's on the map
-	tilemap:              TileMap,
-	entities:             sa.Small_Array(MAX_ENTITIES, AnyEntity), // sparse array
-	animation_database:   AnimationDatabase,
-	frame_time:           f32,
-	camera_pos:           rl.Vector2,
-	player_texture:       rl.Texture,
-	some_number:          int,
-	run:                  bool,
+	tilemap:                   TileMap,
+	entities:                  sa.Small_Array(MAX_ENTITIES, AnyEntity), // sparse array
+	animation_database:        AnimationDatabase,
+	frame_time:                f32,
+	camera_pos:                rl.Vector2,
+	player_texture:            rl.Texture,
+	some_number:               int,
+	run:                       bool,
 
 	// important entities
-	player:               EntityHandle,
+	player:                    EntityHandle,
 
 	// turn ordering
-	round:                u32,
-	turn:                 u32,
-	is_player_turn:       bool,
+	round:                     u32,
+	turn:                      u32,
+	is_player_turn:            bool,
 
 	// hover state
-	hover_state:          HoverState,
+	hover_state:               HoverState,
 
 	// overlays
-	entity_select:        TileTypeData,
-	clay_arena:           clay.Arena,
-	clay_memory:          [^]u8,
-	attack_menu:          Maybe(FloatingMenuState),
-	attack_menu_commands: clay.ClayArray(clay.RenderCommand),
-	click_consumed:       bool,
-	attack_click_data:    ClickData,
+	entity_select:             TileTypeData,
+	clay_arena:                clay.Arena,
+	clay_memory:               [^]u8,
+	attack_menu:               Maybe(FloatingMenuState),
+	attack_menu_commands:      clay.ClayArray(clay.RenderCommand),
+	click_consumed:            bool,
+	attack_click_data:         ClickData,
+	move_tiles:                sa.Small_Array(MAX_MOVE_TILES, MoveTile),
+	hovered_tile_movable:      bool,
+	hovered_tile_in_move_tile: u32,
 }
 
 
@@ -161,17 +164,15 @@ update :: proc() {
 	g.some_number += 1
 
 
-	// dijkstra
-	move_tiles: MoveTiles
-	get_move_tiles(&move_tiles)
-	assert(sa.cap(move_tiles) < 255)
+	get_move_tiles(&g.move_tiles, &g.tilemap)
+	assert(sa.cap(g.move_tiles) < 255)
 
 	if rl.IsKeyPressed(.G) {
 
 		fmt.println("max_move_tiles:", MAX_MOVE_TILES)
-		fmt.println("num_move_tiles:", sa.len(move_tiles))
+		fmt.println("num_move_tiles:", sa.len(g.move_tiles))
 		fmt.println("move_tiles:")
-		for tile in sa.slice(&move_tiles) {
+		for tile in sa.slice(&g.move_tiles) {
 			fmt.println(tile)
 		}
 	}
@@ -208,6 +209,16 @@ update :: proc() {
 		}
 	}
 
+	g.hovered_tile_movable = false
+	if g.hover_state.selected_action == .MOVE {
+		for tile, i in sa.slice(&g.move_tiles) {
+			if hovered_tile.tile == tile.pos {
+				g.hovered_tile_movable = true
+				g.hovered_tile_in_move_tile = u32(i)
+			}
+		}
+	}
+
 	attack_menu_hovered := false
 	if attack_menu, ok := g.attack_menu.?; ok {
 		g.attack_menu_commands, attack_menu_hovered = action_menu_layout_new(attack_menu)
@@ -228,7 +239,6 @@ update :: proc() {
 			g.attack_menu = nil
 			g.hover_state.selection = HIGHLIGHT_STATE_INVALID
 		}
-
 	}
 
 
@@ -262,6 +272,59 @@ draw :: proc() {
 			rl.Color{255, 255, 255, 25},
 		)
 	}
+
+	if g.hover_state.selected_action == .MOVE {
+		for tile in sa.slice(&g.move_tiles)[1:] {
+			rl.DrawRectangle(
+				i32(tile.pos.x) * TEXTURE_SCALE_GLOBAL,
+				i32(tile.pos.y) * TEXTURE_SCALE_GLOBAL,
+				TEXTURE_SCALE_GLOBAL,
+				TEXTURE_SCALE_GLOBAL,
+				rl.Color{0, 255, 0, 25},
+			)}
+		if g.hovered_tile_movable && g.hovered_tile_in_move_tile != 0 {
+			curr := sa.get(g.move_tiles, int(g.hovered_tile_in_move_tile))
+
+			// draw end arrow
+			next := curr
+			curr = sa.get(g.move_tiles, int(curr.prev))
+
+			for i := 0; curr.prev != 255; i += 1 {
+				prev := sa.get(g.move_tiles, int(curr.prev))
+
+				next_neighbor_type := get_neighbor_type(curr.pos, next.pos)
+				prev_neighbor_type := get_neighbor_type(curr.pos, prev.pos)
+
+				path_type := PATH_TYPE_LUT[next_neighbor_type][prev_neighbor_type]
+				assert(path_type != .INVALID)
+
+				// draw path of that type
+				TEMP_COLOR_LUT: [PathType]rl.Color = {
+					.INVALID      = rl.BLACK,
+					.HORIZONTAL   = rl.RED,
+					.LEFT_TOP     = rl.BEIGE,
+					.LEFT_BOTTOM  = rl.BROWN,
+					.RIGHT_TOP    = rl.DARKBLUE,
+					.RIGHT_BOTTOM = rl.GOLD,
+					.VERTICAL     = rl.BLUE,
+				}
+
+				rl.DrawRectangle(
+					i32(curr.pos.x) * TEXTURE_SCALE_GLOBAL,
+					i32(curr.pos.y) * TEXTURE_SCALE_GLOBAL,
+					TEXTURE_SCALE_GLOBAL,
+					TEXTURE_SCALE_GLOBAL,
+					TEMP_COLOR_LUT[path_type],
+				)
+
+				// DO NOT USE CONTINUE
+				next = curr
+				curr = prev
+			}
+
+		}
+	}
+
 	if g.hover_state.selection.entity != ENTITY_HANDLE_INVALID {
 		draw_tile(g.entity_select, g.hover_state.selection.tile)
 	}
@@ -281,6 +344,16 @@ draw :: proc() {
 		8,
 		rl.WHITE,
 	)
+
+	if highlight_state, hover_tile := g.hover_state.hover_region.(HighlightState); hover_tile {
+		rl.DrawText(
+			fmt.ctprintf("hovered_tile: %s", highlight_state.tile),
+			5,
+			5 + 2 * 8,
+			8,
+			rl.WHITE,
+		)
+	}
 
 
 	rl.EndMode2D()
@@ -371,7 +444,7 @@ game_hot_reloaded :: proc(mem: rawptr) {
 	}
 
 	player_ptr := get_base_entity_from_union(sa.get_ptr(&g.entities, 0))
-	player_ptr.pos = [2]u32{3, 3}
+	entity_move(player_ptr, &g.tilemap, [2]u32{3, 3})
 
 }
 

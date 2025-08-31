@@ -105,16 +105,10 @@ tilemap_init :: proc(tilemap: ^TileMap) {
 }
 
 
-draw_tile :: proc(tile_data : TileTypeData, pos: [2]u32) {
-    texture := tile_data.texture
+draw_tile :: proc(tile_data: TileTypeData, pos: [2]u32) {
+	texture := tile_data.texture
 	scale := tile_data.texture_scale
-    rl.DrawTextureEx(
-					texture,
-					la.to_f32(pos * TEXTURE_SCALE_GLOBAL),
-					0,
-					scale,
-					rl.WHITE,
-				)
+	rl.DrawTextureEx(texture, la.to_f32(pos * TEXTURE_SCALE_GLOBAL), 0, scale, rl.WHITE)
 
 }
 
@@ -128,4 +122,48 @@ tilemap_draw :: proc(tilemap: ^TileMap) {
 			}
 		}
 	}
+}
+
+NeighborType :: enum {
+	LEFT,
+	RIGHT,
+	TOP,
+	BOTTOM,
+}
+
+//  l r t b
+// l  x x x
+// r    x x
+// t      x
+// b
+
+PathType :: enum {
+	INVALID,
+	HORIZONTAL,
+	LEFT_TOP,
+	LEFT_BOTTOM,
+	RIGHT_TOP,
+	RIGHT_BOTTOM,
+	VERTICAL,
+}
+
+get_neighbor_type :: proc(curr: [2]u32, neighbor: [2]u32) -> NeighborType {
+	neighbor_type := NeighborType.LEFT
+	if neighbor.x < curr.x {
+		neighbor_type = .RIGHT
+	} else if neighbor.y > curr.y {
+		neighbor_type = .BOTTOM
+	} else if neighbor.y < curr.y {
+		neighbor_type = .TOP
+	} else {
+	assert(neighbor.x > curr.x)
+	}
+	return neighbor_type
+}
+
+PATH_TYPE_LUT: [NeighborType][NeighborType]PathType = {
+	.LEFT = {.LEFT = .INVALID, .RIGHT = .HORIZONTAL, .TOP = .LEFT_TOP, .BOTTOM = .LEFT_BOTTOM},
+	.RIGHT = {.LEFT = .HORIZONTAL, .RIGHT = .INVALID, .TOP = .RIGHT_TOP, .BOTTOM = .RIGHT_BOTTOM},
+	.TOP = {.LEFT = .LEFT_TOP, .RIGHT = .RIGHT_TOP, .TOP = .INVALID, .BOTTOM = .VERTICAL},
+	.BOTTOM = {.LEFT = .LEFT_BOTTOM, .RIGHT = .RIGHT_BOTTOM, .TOP= .VERTICAL, .BOTTOM = .INVALID},
 }

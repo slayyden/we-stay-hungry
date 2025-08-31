@@ -186,9 +186,19 @@ MoveTile :: struct {
 	prev:     u8, // pointer in move_tile array
 }
 
-MAX_MOVE_TILES :: 4 * (((PLAYER_SPEED - 1) * (PLAYER_SPEED - 2)) / 2 + PLAYER_SPEED)
+/*
+00 00 00 XX 00 00 00
+00 00 XX XX XX 00 00
+00 XX XX XX XX XX 00
+XX XX XX XX XX XX XX
+00 XX XX XX XX XX 00
+00 00 XX XX XX 00 00
+00 00 00 XX 00 00 00
+*/
+
+MAX_MOVE_TILES :: 4 * ((PLAYER_SPEED * (PLAYER_SPEED + 1)) / 2) + 1
 // frontier can extend 1 further than the move span
-MAX_FRONTIER_COVERAGE :: 4 * (((PLAYER_SPEED) * (PLAYER_SPEED - 1)) / 2 + PLAYER_SPEED + 1)
+MAX_FRONTIER_COVERAGE :: 4 * (((PLAYER_SPEED + 1) * (PLAYER_SPEED + 2)) / 2) + 1
 // get the perimeter by subtracting the bigger footprint from the smaller one
 MAX_FRONTIER_SIZE :: MAX_FRONTIER_COVERAGE - MAX_MOVE_TILES
 
@@ -196,7 +206,9 @@ MAX_FRONTIER_SIZE :: MAX_FRONTIER_COVERAGE - MAX_MOVE_TILES
 MoveTiles :: sa.Small_Array(MAX_MOVE_TILES, MoveTile)
 
 import "core:fmt"
-get_move_tiles :: proc(move_tiles: ^MoveTiles) {
+get_move_tiles :: proc(move_tiles: ^MoveTiles, tilemap: ^TileMap) {
+	// reset everything
+	sa.clear(move_tiles)
 	initial_position := get_base_entity_from_union(sa.get_ptr(&g.entities, int(g.player))).pos
 	initial_tile := MoveTile {
 		pos      = initial_position,
@@ -205,7 +217,7 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles) {
 	}
 	frontier: sa.Small_Array(MAX_FRONTIER_SIZE, MoveTile)
 
-	sa.append_elem(&frontier, initial_tile)
+	assert(sa.append_elem(&frontier, initial_tile))
 	for sa.len(frontier) > 0 {
 		if rl.IsKeyPressed(.G) {
 			fmt.println("max frontier size:", MAX_FRONTIER_SIZE)
@@ -230,7 +242,7 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles) {
 
 		// insert curr into the finalized list
 		curr_insertion_idx := u8(sa.len(move_tiles^))
-		sa.append(move_tiles, curr)
+		assert(sa.append(move_tiles, curr))
 
 		// find valid neighbors
 		neighbors: sa.Small_Array(4, [2]u32)
@@ -239,7 +251,19 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles) {
 		if curr.pos.y > 0_____________ do sa.append(&neighbors, curr.pos - [2]u32{0, 1}) // top valid
 		if curr.pos.y + 1 < MAP_HEIGHT do sa.append(&neighbors, curr.pos + [2]u32{0, 1}) // neighbor valid
 
-		// remove finalized neighbors
+
+		// remove occupied neighbors (in place filter)
+		for i := 0; i < sa.len(neighbors); {
+			if tile_is_occupied(tilemap, sa.get(neighbors, i)) {
+				sa.unordered_remove(&neighbors, i)
+			} else {
+				// removing puts the last element in neighbors[i]
+				// to check the former last element, we don't want to advance i
+				// if we've removed an element
+				i += 1
+			}
+		}
+		// remove finalized neighbors (in place filter)
 		for tile in sa.slice(move_tiles) {
 			for i := 0; i < sa.len(neighbors); i += 1 {
 				if sa.get(neighbors, i) == tile.pos {
