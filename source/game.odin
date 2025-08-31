@@ -34,7 +34,7 @@ import la "core:math/linalg"
 import rl "vendor:raylib"
 
 // PIXEL_WINDOW_HEIGHT :: 180
-PIXEL_WINDOW_HEIGHT :: 360
+PIXEL_WINDOW_HEIGHT :: 720
 MAX_ENTITIES :: 16
 WINDOW_WIDTH_INIT :: 1280
 WINDOW_HEIGHT_INIT :: 720
@@ -167,6 +167,20 @@ update :: proc() {
 	get_move_tiles(&g.move_tiles, &g.tilemap)
 	assert(sa.cap(g.move_tiles) < 255)
 	g.neighboring_tiles, g.attack_tiles = get_attack_tiles(player_position, &g.tilemap)
+
+	if rl.IsKeyPressed(.G) {
+		die_yaki_base := get_base_entity_from_union(sa.get_ptr(&g.entities, 1))
+		dist := manhattan_distance_u32_array(die_yaki_base.pos, player_position)
+		if dist > DIE_YAKI_RANGE && dist < DIE_YAKI_SEARCH_RANGE {
+			move_to, ok := aStar(die_yaki_base.pos, player_position, &g.tilemap)
+			fmt.println("move_to:", move_to)
+			if (ok) {
+				entity_move(die_yaki_base, &g.tilemap, move_to)
+			}
+		} else {
+			fmt.println("dist:", dist)
+		}
+	}
 
 	// ---------------------------------------------------------------------------
 	// tile hovering

@@ -207,7 +207,6 @@ MAX_FRONTIER_SIZE :: MAX_FRONTIER_COVERAGE - MAX_MOVE_TILES
 
 MoveTiles :: sa.Small_Array(MAX_MOVE_TILES, MoveTile)
 
-import "core:fmt"
 
 TileNeighbors :: sa.Small_Array(4, [2]u32)
 
@@ -261,10 +260,6 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles, tilemap: ^TileMap) {
 
 	assert(sa.append_elem(&frontier, initial_tile))
 	for sa.len(frontier) > 0 {
-		if rl.IsKeyPressed(.G) {
-			fmt.println("max frontier size:", MAX_FRONTIER_SIZE)
-			fmt.println("frontier size:", sa.len(frontier))
-		}
 		// pop min
 		curr := sa.get(frontier, 0)
 		min_idx := 0
@@ -345,15 +340,19 @@ manhattan_distance_u32_array :: proc(x: [$N]u32, y: [N]u32) -> u32 {
 DIE_YAKI_RANGE :: PLAYER_SPEED * 2
 DIE_YAKI_SEARCH_RANGE :: 16
 
-OpenSet :: sa.Small_Array(128, PathFindTile)
-FinalSet :: sa.Small_Array(128, PathFindTile)
+ASTAR_SET_SIZE :: 4 * ((DIE_YAKI_SEARCH_RANGE * (DIE_YAKI_SEARCH_RANGE + 1)) / 2) + 1
+
+import "core:fmt"
+OpenSet :: sa.Small_Array(ASTAR_SET_SIZE, PathFindTile)
+FinalSet :: sa.Small_Array(ASTAR_SET_SIZE, PathFindTile)
 getNextTile :: #force_inline proc(
 	start: [2]u32,
 	final_set: FinalSet,
 	goal: PathFindTile,
 ) -> [2]u32 {
 	curr := goal
-	for curr.f_score > DIE_YAKI_RANGE {
+	for distance_to_player := 0; distance_to_player < DIE_YAKI_RANGE; distance_to_player += 1 {
+		fmt.println("curr:", curr)
 		curr = sa.get(final_set, int(curr.prev))
 	}
 	return curr.pos
@@ -363,10 +362,11 @@ PathFindTile :: struct {
 	pos:     [2]u32, // index in tilemap
 	g_score: u32,
 	f_score: u32,
-	prev:    u8, // pointer in move_tile array
+	prev:    u16, // pointer in move_tile array
 }
 
 aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) {
+	fmt.println("astar set size:", ASTAR_SET_SIZE)
 	assert(start != goal)
 	// The set of discovered nodes that may need to be (re-)expanded.
 	// Initially, only the start node is known.
@@ -401,30 +401,31 @@ aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) 
 			}
 		}
 
-		// too far, terminate the search
-		if curr.f_score > DIE_YAKI_SEARCH_RANGE do return [2]u32{U32_MAX, U32_MAX}, false
 
 		// we found the end
 		if curr.pos == goal do return getNextTile(start, final_set, curr), true
 
 		sa.unordered_remove(&open_set, index_in_openSet)
 
+		// too far, terminate the search
+		if curr.g_score > DIE_YAKI_SEARCH_RANGE do continue
+
 		// update curr in final set if needed
 		curr_in_finalset := false
-		curr_insertion_idx := u8(sa.len(final_set))
+		curr_insertion_idx := u16(sa.len(final_set))
 		for &elem, i in sa.slice(&final_set) {
 			if elem.pos == curr.pos {
 				curr_in_finalset = true
 				elem = curr
-				curr_insertion_idx = u8(i)
+				curr_insertion_idx = u16(i)
 			}
 		}
 		// otherwise, add curr to final set
-		if !curr_in_finalset do assert(sa.append(&final_set, curr))
+		if !curr_in_finalset do assert(sa.push_back(&final_set, curr))
 
 		// find valid neighbors
 		neighbors := get_in_bounds_neighbors(curr.pos)
-		remove_occupied_neighbors_in_place(&neighbors, tilemap)
+		// remove_occupied_neighbors_in_place(&neighbors, tilemap)
 		d :: 1
 		for neighbor in sa.slice(&neighbors) {
 			tentative_gscore := curr.g_score + d
@@ -443,7 +444,7 @@ aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) 
 					break
 				}
 			}
-			if !neighbor_in_openset do assert(sa.append(&open_set, new_elem))
+			if !neighbor_in_openset do assert(sa.push_back(&open_set, new_elem))
 		}
 	}
 
