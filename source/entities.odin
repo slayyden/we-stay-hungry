@@ -175,6 +175,17 @@ draw_entities :: proc(
 ) {
 	for &entity in sa.slice(entities) {
 		entity_base := get_base_entity_from_union(&entity)
+		x := f32(entity_base.pos.x)
+		y := f32(entity_base.pos.y)
+		switch e in entity {
+		case PlayerChar:
+		case DieYaki:
+			if sa.len(e.path) > 0 {
+
+				x = e.granular_position.x
+				y = e.granular_position.y
+			}
+		}
 		animation_data, animation_state := get_animation(&entity)
 		texture := animation_data.texture
 		frame_width := f32(texture.width) / f32(animation_data.num_frames)
@@ -186,8 +197,8 @@ draw_entities :: proc(
 			height = f32(texture.height),
 		}
 		dest_rect := rl.Rectangle {
-			x      = TEXTURE_SCALE_GLOBAL * f32(entity_base.pos.x),
-			y      = TEXTURE_SCALE_GLOBAL * f32(entity_base.pos.y),
+			x      = TEXTURE_SCALE_GLOBAL * x,
+			y      = TEXTURE_SCALE_GLOBAL * y,
 			width  = TEXTURE_SCALE_GLOBAL,
 			height = TEXTURE_SCALE_GLOBAL,
 		}
@@ -365,7 +376,7 @@ get_astar_path :: #force_inline proc(
 	goal: PathFindTile,
 ) -> DieYakiPath {
 	path: DieYakiPath
-	curr := goal
+	curr := sa.get(final_set, int(goal.prev))
 	for distance_to_player := 0; distance_to_player < DIE_YAKI_RANGE; distance_to_player += 1 {
 		fmt.println("curr:", curr)
 		sa.push_back(&path, curr.pos)
@@ -472,14 +483,14 @@ import "core:math"
 import la "core:math/linalg"
 
 entity_lerp_path :: proc(entity: ^EntityBase, path: DieYakiPath, t: f32) -> [2]f32 {
-	assert(-0.0001 <= t && t <= 1.0001)
-	t_scaled := t * f32(sa.len(path) - 1)
-	index_start := int(math.floor(t_scaled))
-	index_end := int(math.ceil(t_scaled))
+	assert(0 <= t && t < 1)
+	t_scaled := (1 - t) * f32(sa.len(path) - 1)
+	index_end := int(math.floor(t_scaled))
+	index_start := int(math.ceil(t_scaled))
 
 	lerp_point_start := la.to_f32(sa.get(path, index_start))
 	lerp_point_end := la.to_f32(sa.get(path, index_end))
 
-	t_lerp := math.mod_f32(t, 1.0)
-	return math.lerp(lerp_point_start, lerp_point_end, t_lerp)
+	t_lerp := t_scaled - math.floor(t_scaled)
+	return math.lerp(lerp_point_start, lerp_point_end, 1 - t_lerp)
 }

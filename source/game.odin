@@ -197,11 +197,14 @@ update :: proc() {
 				if (ok) {
 					die_yaki_base.animation_state.animation.die_yaki_anim = .MOVE
 					die_yaki_base.animation_state.loop = true
-					entity_move(die_yaki_base, &g.tilemap, sa.get(path, sa.len(path) - 1))
+					fmt.println("yeh")
+					entity_move(die_yaki_base, &g.tilemap, sa.get(path, 0))
+					fmt.println("ermm")
 					e.path = path
 					e.t = 0
 				}
 			} else {
+				g.turn += 1
 				fmt.println("dist:", dist)
 			}
 		}
@@ -313,14 +316,28 @@ update :: proc() {
 		}
 	}
 
-
 	for &entity in sa.slice(&g.entities) {
-		if die_yaki, ok := entity.(DieYaki); ok && die_yaki.health <= 0 {
-			base_entity := get_base_entity_from_union(&entity)
-			if base_entity.animation_state.animation.die_yaki_anim != .DEAD {
-				rl.PlaySound(g.die_yaki_death)
+		switch &e in entity {
+		case PlayerChar:
+		case DieYaki:
+			if e.health <= 0 {
+				base_entity := get_base_entity_from_union(&entity)
+				if base_entity.animation_state.animation.die_yaki_anim != .DEAD {
+					rl.PlaySound(g.die_yaki_death)
+				}
+				base_entity.animation_state.animation.die_yaki_anim = .DEAD
 			}
-			base_entity.animation_state.animation.die_yaki_anim = .DEAD
+			if sa.len(e.path) > 0 {
+				e.t += 0.01
+				if e.t > 1 {
+					e.t = 1
+					e.animation_state.loop = false // return to idle
+					g.turn += 1 // next entity's turn
+					sa.clear(&e.path)
+				} else {
+					e.granular_position = entity_lerp_path(&e, e.path, e.t)
+				}
+			}
 		}
 		entity_update_animation(&entity, frame_time)
 	}
