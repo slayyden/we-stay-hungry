@@ -23,7 +23,9 @@ handle_button_interaction :: proc "c" (
 ) {
 	context = runtime.default_context()
 	click_data := cast(^ClickData)userData
-	if pointerInfo.state == .PressedThisFrame {
+	// fmt.println("pointer_info:", pointerInfo)
+	if rl.IsMouseButtonPressed(.LEFT) {
+		//if pointerInfo.state == .PressedThisFrame {
 		g.hover_state.selected_action = click_data.action
 		fmt.println(g.hover_state.selected_action)
 		g.click_consumed = true
@@ -56,7 +58,7 @@ action_menu_layout_new :: proc(
 	}
 
 	clay.SetPointerState(rl.GetMousePosition(), rl.IsMouseButtonDown(.LEFT))
-	hovered := clay.PointerOver(clay.GetElementId(clay.MakeString("AttckMenuRoot")))
+	hovered := clay.PointerOver(clay.GetElementId(clay.MakeString("AttackMenuRoot")))
 
 
 	clay.BeginLayout()
@@ -130,7 +132,6 @@ action_menu_layout_new :: proc(
 					backgroundColor = clay.Color{0, 255, 0, 25 if clay.Hovered() else 0},
 				},
 				) {
-
 					clay.OnHover(handle_button_interaction, &move_click_data)
 					clay.Text("Move", &text_config)
 				}

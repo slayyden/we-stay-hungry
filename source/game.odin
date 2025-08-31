@@ -33,10 +33,12 @@ import "core:fmt"
 import la "core:math/linalg"
 import rl "vendor:raylib"
 
-PIXEL_WINDOW_HEIGHT :: 180
+// PIXEL_WINDOW_HEIGHT :: 180
+PIXEL_WINDOW_HEIGHT :: 360
 MAX_ENTITIES :: 16
 WINDOW_WIDTH_INIT :: 1280
 WINDOW_HEIGHT_INIT :: 720
+CAMERA_SPEED :: 3
 
 // from https://github.com/nicbarker/clay/issues/420
 // enough for 64 elements
@@ -73,8 +75,14 @@ Game_Memory :: struct {
 	click_consumed:            bool,
 	attack_click_data:         ClickData,
 	move_tiles:                sa.Small_Array(MAX_MOVE_TILES, MoveTile),
+	neighboring_tiles:         TileNeighbors,
+	attack_tiles:              TileNeighbors,
 	hovered_tile_movable:      bool,
+	hovered_tile_attackable:   bool,
 	hovered_tile_in_move_tile: u32,
+
+	// sounds
+	music:                     rl.Music,
 }
 
 
@@ -92,13 +100,18 @@ game_init :: proc() {
 			selected_action = .NONE,
 		},
 		player = 0,
+		music = rl.LoadMusicStream("assets/Combat - High HP.mp3"),
 	}
 
 	tilemap_init(&g.tilemap)
 	animation_database_init(&g.animation_database)
 	sa.append(
 		&g.entities,
-		PlayerChar{pos = {1, 0}, health = 10, animation_state = AnimationState{loop = true}},
+		PlayerChar{pos = {3, 3}, health = 10, animation_state = AnimationState{loop = true}},
+	)
+	sa.append(
+		&g.entities,
+		DieYaki{pos = {3, 4}, health = 10, animation_state = AnimationState{loop = true}},
 	)
 
 	for &entity in sa.slice(&g.entities) {
@@ -107,7 +120,8 @@ game_init :: proc() {
 	}
 
 	g.entity_select = tile_type_data("assets/tile_select.png")
-
+	assert(rl.IsMusicValid(g.music))
+	rl.PlayMusicStream(g.music)
 
 	game_hot_reloaded(g)
 }
@@ -128,15 +142,8 @@ update :: proc() {
 	frame_time := rl.GetFrameTime()
 	g.frame_time = frame_time
 	input: rl.Vector2
-	if (&g.click_consumed == nil) {
-		fmt.println("fuck")
-		panic("bruh")
-	} else {
-		// fmt.println("ok")
-	}
-	// g.click_consumed = false
 
-	// rl.UpdateMusicStream()
+	rl.UpdateMusicStream(g.music)
 
 	if rl.IsKeyDown(.UP) || rl.IsKeyDown(.W) {
 		input.y -= 1
@@ -150,32 +157,16 @@ update :: proc() {
 	if rl.IsKeyDown(.RIGHT) || rl.IsKeyDown(.D) {
 		input.x += 1
 	}
-	if rl.IsKeyDown(.Q) {
-		arr: [2][2]int
 
-		fmt.println("0, 0:", &(arr[0][0]))
-		fmt.println("0, 1:", &(arr[0][1]))
-		fmt.println("1, 0:", &(arr[1][0]))
-		fmt.println("1, 1:", &(arr[1][1]))
-	}
-
-	input = la.normalize0(input)
+	input = la.normalize0(input) * CAMERA_SPEED
 	g.camera_pos += input * frame_time * 100
 	g.some_number += 1
 
 
+	player_position := get_base_entity_from_union(sa.get_ptr(&g.entities, int(g.player))).pos
 	get_move_tiles(&g.move_tiles, &g.tilemap)
 	assert(sa.cap(g.move_tiles) < 255)
-
-	if rl.IsKeyPressed(.G) {
-
-		fmt.println("max_move_tiles:", MAX_MOVE_TILES)
-		fmt.println("num_move_tiles:", sa.len(g.move_tiles))
-		fmt.println("move_tiles:")
-		for tile in sa.slice(&g.move_tiles) {
-			fmt.println(tile)
-		}
-	}
+	g.neighboring_tiles, g.attack_tiles = get_attack_tiles(player_position, &g.tilemap)
 
 	// ---------------------------------------------------------------------------
 	// tile hovering
@@ -229,8 +220,14 @@ update :: proc() {
 	}
 	if !attack_menu_hovered {
 		g.hover_state.hover_region = hovered_tile
+	} else {
+		g.hover_state.hover_region = MenuHover{}
 	}
 	if rl.IsMouseButtonPressed(.LEFT) {
+
+		fmt.println("attack_menu_hovered:", attack_menu_hovered)
+		fmt.println("hover state:", g.hover_state)
+		// are we selecting a player?
 		if 
 		   highlight_state, hovering_tile := g.hover_state.hover_region.(HighlightState); hovering_tile && !attack_menu_hovered && hovered_tile_occupied && highlight_state.entity == g.player {
 			g.attack_menu = FloatingMenuState(rl.GetMousePosition())
@@ -238,6 +235,38 @@ update :: proc() {
 		} else {
 			g.attack_menu = nil
 			g.hover_state.selection = HIGHLIGHT_STATE_INVALID
+		}
+
+		// are we hovering somewhere we can move?
+		if highlight_state, hovering_tile := g.hover_state.hover_region.(HighlightState);
+		   hovering_tile {
+
+			switch g.hover_state.selected_action {
+			case .NONE:
+			case .ATTACK:
+				for attack_tile in sa.slice(&g.attack_tiles) {
+					if highlight_state.tile == attack_tile {
+						// TODO: implement the attack
+						g.hover_state.selected_action = .NONE
+						g.hover_state.selection = HIGHLIGHT_STATE_INVALID
+						break
+					}
+
+				}
+			case .MOVE:
+				for move_tile in sa.slice(&g.move_tiles) {
+					player_ptr := get_base_entity_from_union(
+						sa.get_ptr(&g.entities, int(g.player)),
+					)
+					if highlight_state.tile == move_tile.pos {
+						entity_move(player_ptr, &g.tilemap, move_tile.pos)
+						g.hover_state.selected_action = .NONE
+						g.hover_state.selection = HIGHLIGHT_STATE_INVALID
+						break
+					}
+				}
+			}
+			g.hover_state.selected_action = .NONE
 		}
 	}
 
@@ -249,7 +278,6 @@ update :: proc() {
 	if rl.IsKeyPressed(.ESCAPE) {
 		g.run = false
 	}
-
 }
 
 draw :: proc() {
@@ -377,6 +405,7 @@ game_init_window :: proc() {
 	rl.SetWindowPosition(200, 200)
 	rl.SetTargetFPS(60)
 	rl.SetExitKey(nil)
+	// rl.InitAudioDevice()
 }
 
 
@@ -443,8 +472,6 @@ game_hot_reloaded :: proc(mem: rawptr) {
 		action = .MOVE,
 	}
 
-	player_ptr := get_base_entity_from_union(sa.get_ptr(&g.entities, 0))
-	entity_move(player_ptr, &g.tilemap, [2]u32{3, 3})
 
 }
 

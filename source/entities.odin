@@ -3,12 +3,10 @@ package game
 import "base:intrinsics"
 import sa "core:container/small_array"
 import rl "vendor:raylib"
-
 EntityHandle :: distinct u32
 AnimationHandle :: distinct u32
 ENTITY_HANDLE_INVALID :: EntityHandle(~u32(0))
 PLAYER_SPEED :: 3
-
 
 EntityBase :: struct {
 	pos:             [2]u32,
@@ -109,6 +107,11 @@ animation_database_init :: proc(animation_database: ^AnimationDatabase) {
 		24,
 		12,
 	)
+	animation_database.die_yaki_animations[.IDLE] = animation_data_new(
+		"assets/die_yaki_idle.png",
+		4,
+		5,
+	)
 }
 
 DieYakiAnim :: enum {
@@ -116,7 +119,6 @@ DieYakiAnim :: enum {
 	ATTACK,
 	MOVE,
 }
-
 
 DieYaki :: struct {
 	using entity_base: EntityBase,
@@ -206,6 +208,46 @@ MAX_FRONTIER_SIZE :: MAX_FRONTIER_COVERAGE - MAX_MOVE_TILES
 MoveTiles :: sa.Small_Array(MAX_MOVE_TILES, MoveTile)
 
 import "core:fmt"
+
+TileNeighbors :: sa.Small_Array(4, [2]u32)
+
+get_in_bounds_neighbors :: proc(source: [2]u32) -> (neighbors: TileNeighbors) {
+	if source.x > 0_____________ do sa.append(&neighbors, source - [2]u32{1, 0}) // left valid
+	if source.x + 1_ < MAP_WIDTH do sa.append(&neighbors, source + [2]u32{1, 0}) // right valid
+	if source.y > 0_____________ do sa.append(&neighbors, source - [2]u32{0, 1}) // top valid
+	if source.y + 1 < MAP_HEIGHT do sa.append(&neighbors, source + [2]u32{0, 1}) // neighbor valid
+	return
+}
+
+remove_occupied_neighbors_in_place :: proc(neighbors: ^TileNeighbors, tilemap: ^TileMap) {
+	for i := 0; i < sa.len(neighbors^); {
+		if tile_is_occupied(tilemap, sa.get(neighbors^, i)) {
+			sa.unordered_remove(neighbors, i)
+		} else {
+			// removing puts the last element in neighbors[i]
+			// to check the former last element, we don't want to advance i
+			// if we've removed an element
+			i += 1
+		}
+	}
+}
+
+get_attack_tiles :: #force_inline proc(
+	source: [2]u32,
+	tilemap: ^TileMap,
+) -> (
+	TileNeighbors,
+	TileNeighbors,
+) {
+	neighbors := get_in_bounds_neighbors(source)
+	attack_tiles: TileNeighbors
+	for neighbor in sa.slice(&neighbors) {
+		if !tile_is_occupied(tilemap, neighbor) do continue
+		sa.push_back(&attack_tiles, neighbor)
+	}
+	return neighbors, attack_tiles
+}
+
 get_move_tiles :: proc(move_tiles: ^MoveTiles, tilemap: ^TileMap) {
 	// reset everything
 	sa.clear(move_tiles)
@@ -232,10 +274,9 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles, tilemap: ^TileMap) {
 				min_idx = i + 1
 			}
 		}
-		if curr.distance > PLAYER_SPEED {
-			// we do not care about further paths
-			break
-		}
+		// we do not care about further paths
+		if curr.distance > PLAYER_SPEED do break
+
 		// now curr is the element with minimum distance
 		// we do not want to visit curr again
 		sa.unordered_remove(&frontier, min_idx)
@@ -245,24 +286,9 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles, tilemap: ^TileMap) {
 		assert(sa.append(move_tiles, curr))
 
 		// find valid neighbors
-		neighbors: sa.Small_Array(4, [2]u32)
-		if curr.pos.x > 0_____________ do sa.append(&neighbors, curr.pos - [2]u32{1, 0}) // left valid
-		if curr.pos.x + 1_ < MAP_WIDTH do sa.append(&neighbors, curr.pos + [2]u32{1, 0}) // right valid
-		if curr.pos.y > 0_____________ do sa.append(&neighbors, curr.pos - [2]u32{0, 1}) // top valid
-		if curr.pos.y + 1 < MAP_HEIGHT do sa.append(&neighbors, curr.pos + [2]u32{0, 1}) // neighbor valid
+		neighbors := get_in_bounds_neighbors(curr.pos)
+		remove_occupied_neighbors_in_place(&neighbors, tilemap)
 
-
-		// remove occupied neighbors (in place filter)
-		for i := 0; i < sa.len(neighbors); {
-			if tile_is_occupied(tilemap, sa.get(neighbors, i)) {
-				sa.unordered_remove(&neighbors, i)
-			} else {
-				// removing puts the last element in neighbors[i]
-				// to check the former last element, we don't want to advance i
-				// if we've removed an element
-				i += 1
-			}
-		}
 		// remove finalized neighbors (in place filter)
 		for tile in sa.slice(move_tiles) {
 			for i := 0; i < sa.len(neighbors); i += 1 {
@@ -302,4 +328,125 @@ get_move_tiles :: proc(move_tiles: ^MoveTiles, tilemap: ^TileMap) {
 			}
 		}
 	}
+}
+
+manhattan_distance_u32 :: proc(x: u32, y: u32) -> u32 {
+	return max(x, y) - min(x, y)
+}
+
+manhattan_distance_u32_array :: proc(x: [$N]u32, y: [N]u32) -> u32 {
+	sum: u32 = 0
+	for i in 0 ..< N {
+		sum += manhattan_distance_u32(x[i], y[i])
+	}
+	return sum
+}
+
+DIE_YAKI_RANGE :: PLAYER_SPEED * 2
+DIE_YAKI_SEARCH_RANGE :: 16
+
+OpenSet :: sa.Small_Array(128, PathFindTile)
+FinalSet :: sa.Small_Array(128, PathFindTile)
+getNextTile :: #force_inline proc(
+	start: [2]u32,
+	final_set: FinalSet,
+	goal: PathFindTile,
+) -> [2]u32 {
+	curr := goal
+	for curr.f_score > DIE_YAKI_RANGE {
+		curr = sa.get(final_set, int(curr.prev))
+	}
+	return curr.pos
+}
+
+PathFindTile :: struct {
+	pos:     [2]u32, // index in tilemap
+	g_score: u32,
+	f_score: u32,
+	prev:    u8, // pointer in move_tile array
+}
+
+aStar :: proc(start: [2]u32, goal: [2]u32, tilemap: ^TileMap) -> ([2]u32, bool) {
+	assert(start != goal)
+	// The set of discovered nodes that may need to be (re-)expanded.
+	// Initially, only the start node is known.
+	open_set: OpenSet
+	final_set: FinalSet
+
+	// For node n, cameFrom[n] is the node immediately preceding it on the cheapest path from the start
+	// For node n, gScore[n] is the currently known cost of the cheapest path from start to n.
+	// For node n, fScore[n] := gScore[n] + h(n). fScore[n] represents our current best guess as to
+	// how cheap a path could be from start to finish if it goes through n.
+	sa.append(
+		&open_set,
+		PathFindTile {
+			pos = start,
+			g_score = 0,
+			f_score = manhattan_distance_u32_array(start, goal),
+			prev = 255,
+		},
+	)
+
+	for sa.len(open_set) > 0 {
+		// This operation can occur in O(Log(N)) time if openSet is a min-heap or a priority queue
+		// current := the node in openSet having the lowest fScore[] value
+		curr := sa.get(open_set, 0)
+		min := curr.f_score
+		index_in_openSet := 0
+		for open_elem, i in sa.slice(&open_set)[1:] {
+			if open_elem.f_score < min {
+				min = open_elem.f_score
+				curr = open_elem
+				index_in_openSet = i + 1 // we start on the 2nd element
+			}
+		}
+
+		// too far, terminate the search
+		if curr.f_score > DIE_YAKI_SEARCH_RANGE do return [2]u32{U32_MAX, U32_MAX}, false
+
+		// we found the end
+		if curr.pos == goal do return getNextTile(start, final_set, curr), true
+
+		sa.unordered_remove(&open_set, index_in_openSet)
+
+		// update curr in final set if needed
+		curr_in_finalset := false
+		curr_insertion_idx := u8(sa.len(final_set))
+		for &elem, i in sa.slice(&final_set) {
+			if elem.pos == curr.pos {
+				curr_in_finalset = true
+				elem = curr
+				curr_insertion_idx = u8(i)
+			}
+		}
+		// otherwise, add curr to final set
+		if !curr_in_finalset do assert(sa.append(&final_set, curr))
+
+		// find valid neighbors
+		neighbors := get_in_bounds_neighbors(curr.pos)
+		remove_occupied_neighbors_in_place(&neighbors, tilemap)
+		d :: 1
+		for neighbor in sa.slice(&neighbors) {
+			tentative_gscore := curr.g_score + d
+
+			new_elem := PathFindTile {
+				pos     = neighbor,
+				g_score = tentative_gscore,
+				f_score = tentative_gscore + manhattan_distance_u32_array(neighbor, goal),
+				prev    = curr_insertion_idx,
+			}
+			neighbor_in_openset := false
+			for &elem in sa.slice(&open_set) {
+				if elem.pos == neighbor {
+					neighbor_in_openset = true
+					if tentative_gscore < elem.g_score do elem = new_elem
+					break
+				}
+			}
+			if !neighbor_in_openset do assert(sa.append(&open_set, new_elem))
+		}
+	}
+
+	// Open set is empty but goal was never reached
+	return [2]u32{U32_MAX, U32_MAX}, false
 }

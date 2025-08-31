@@ -28,3 +28,16 @@ i guess we don't have many clickable ui elements
   - spawn the attack menu
 - if you click elsewhere
   - despawn the attack menu
+
+
+# TODO
+- [ ] Crits
+- [ ] player attacks
+- [ ] Enemy pathfinding
+- [ ] enemy attacks
+- [ ] make the fucking map
+- [ ] map loading
+- [ ] stats ui
+- [ ] ui styling
+- [ ] health ui thingy
+- [ ] sound effects
